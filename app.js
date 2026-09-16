@@ -273,25 +273,21 @@ function renderizarNegocios() {
     .reduce((soma, d) => soma + d.valor, 0);
   document.getElementById("pipeline-total").textContent = `Total (exceto perdidos): ${formatarMoeda(total)}`;
 
-  const opcoesEstagio = (atual) =>
-    ESTAGIOS.map((e) => `<option value="${e.id}" ${e.id === atual ? "selected" : ""}>${e.label}</option>`).join("");
-
   document.getElementById("kanban").innerHTML = ESTAGIOS.map((estagio) => {
     const negocios = estado.deals.filter((d) => d.estagio === estagio.id);
     const subtotal = negocios.reduce((soma, d) => soma + d.valor, 0);
     return `
-      <div class="kanban-column">
+      <div class="kanban-column" data-estagio="${estagio.id}">
         <h3><span>${estagio.label} (${negocios.length})</span></h3>
         <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.5rem;">${formatarMoeda(subtotal)}</div>
         ${negocios
           .map(
             (d) => `
-          <div class="deal-card">
+          <div class="deal-card" draggable="true" data-negocio-id="${d.id}">
             <div class="deal-titulo">${d.titulo}</div>
             <div class="deal-contato">${contatoNome(d.contatoId)}</div>
             <div class="deal-valor">${formatarMoeda(d.valor)}</div>
             <div class="deal-actions">
-              <select data-mudar-estagio="${d.id}">${opcoesEstagio(d.estagio)}</select>
               <button class="btn btn-ghost btn-small" data-editar-negocio="${d.id}">✎</button>
               <button class="btn btn-danger btn-small" data-excluir-negocio="${d.id}">✕</button>
             </div>
@@ -544,20 +540,50 @@ document.getElementById("tabela-contatos").addEventListener("click", (evento) =>
 });
 
 document.getElementById("btn-novo-negocio").addEventListener("click", () => formularioNegocio(null));
-document.getElementById("kanban").addEventListener("click", (evento) => {
+
+const kanbanEl = document.getElementById("kanban");
+
+kanbanEl.addEventListener("click", (evento) => {
   const editarId = evento.target.dataset.editarNegocio;
   const excluirId = evento.target.dataset.excluirNegocio;
   if (editarId) formularioNegocio(estado.deals.find((d) => d.id === editarId));
   if (excluirId) excluirNegocio(excluirId);
 });
-document.getElementById("kanban").addEventListener("change", (evento) => {
-  const id = evento.target.dataset.mudarEstagio;
-  if (!id) return;
+
+kanbanEl.addEventListener("dragstart", (evento) => {
+  const card = evento.target.closest(".deal-card");
+  if (!card) return;
+  evento.dataTransfer.effectAllowed = "move";
+  evento.dataTransfer.setData("text/plain", card.dataset.negocioId);
+  card.classList.add("dragging");
+});
+
+kanbanEl.addEventListener("dragend", (evento) => {
+  const card = evento.target.closest(".deal-card");
+  if (card) card.classList.remove("dragging");
+  kanbanEl.querySelectorAll(".kanban-column").forEach((c) => c.classList.remove("drag-over"));
+});
+
+kanbanEl.addEventListener("dragover", (evento) => {
+  const coluna = evento.target.closest(".kanban-column");
+  if (!coluna) return;
+  evento.preventDefault();
+  evento.dataTransfer.dropEffect = "move";
+  kanbanEl.querySelectorAll(".kanban-column").forEach((c) => c.classList.toggle("drag-over", c === coluna));
+});
+
+kanbanEl.addEventListener("drop", (evento) => {
+  const coluna = evento.target.closest(".kanban-column");
+  if (!coluna) return;
+  evento.preventDefault();
+  const id = evento.dataTransfer.getData("text/plain");
   const negocio = estado.deals.find((d) => d.id === id);
-  negocio.estagio = evento.target.value;
-  salvar();
-  renderizarNegocios();
-  renderizarDashboard();
+  if (negocio) {
+    negocio.estagio = coluna.dataset.estagio;
+    salvar();
+    renderizarNegocios();
+    renderizarDashboard();
+  }
 });
 
 document.getElementById("btn-nova-tarefa").addEventListener("click", () => formularioTarefa(null));

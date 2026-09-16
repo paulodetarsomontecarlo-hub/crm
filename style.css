@@ -296,6 +296,20 @@ textarea {
   border-radius: 8px;
   padding: 0.6rem 0.7rem;
   margin-bottom: 0.6rem;
+  cursor: grab;
+}
+
+.deal-card:active {
+  cursor: grabbing;
+}
+
+.deal-card.dragging {
+  opacity: 0.4;
+}
+
+.kanban-column.drag-over {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
 }
 
 .deal-card .deal-titulo {
@@ -318,13 +332,7 @@ textarea {
 .deal-card .deal-actions {
   display: flex;
   gap: 0.4rem;
-  align-items: center;
-}
-
-.deal-card .deal-actions select {
-  flex: 1;
-  padding: 0.25rem 0.4rem;
-  font-size: 0.78rem;
+  justify-content: flex-end;
 }
 
 .tarefas-filtros {
