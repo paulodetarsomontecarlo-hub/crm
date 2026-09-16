@@ -20,6 +20,7 @@
         <input type="password" id="login-senha" autocomplete="current-password" required />
       </div>
       <p class="login-erro" id="login-erro" hidden>Usuário ou senha inválidos.</p>
+      <p class="login-status" id="login-status" hidden>Carregando dados...</p>
       <button type="submit" class="btn btn-primary login-btn">Entrar</button>
     </form>
   </div>
@@ -132,6 +133,8 @@
     <div class="modal" id="modal-content"></div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

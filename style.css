@@ -75,6 +75,12 @@ body {
   margin: -0.25rem 0 0.75rem;
 }
 
+.login-status {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin: -0.25rem 0 0.75rem;
+}
+
 .usuario-logado {
   color: var(--text-muted);
   font-size: 0.85rem;

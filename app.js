@@ -1,7 +1,7 @@
 "use strict";
 
-const STORAGE_KEY = "crm-simples:data";
 const SESSAO_KEY = "crm-simples:sessao";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Sem backend, isso é só uma trava de acesso, não segurança de verdade:
 // qualquer pessoa com o arquivo app.js pode ler esses hashes ou pular a
@@ -52,31 +52,93 @@ function hojeISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function estadoInicial() {
-  return { contacts: [], deals: [], tasks: [], estagios: ESTAGIOS_PADRAO.map((e) => ({ ...e })) };
+function estadoVazio() {
+  return { contacts: [], deals: [], tasks: [], estagios: [] };
 }
 
-function carregarEstado() {
+let estado = estadoVazio();
+
+// ---------- mapeamento linha do banco <-> objeto usado pela UI ----------
+
+function linhaParaContato(l) {
+  return { id: l.id, nome: l.nome, empresa: l.empresa || "", email: l.email || "", telefone: l.telefone || "", notas: l.notas || "", criadoEm: l.criado_em };
+}
+
+function contatoParaLinha(c) {
+  return {
+    id: c.id,
+    nome: c.nome,
+    empresa: c.empresa || null,
+    email: c.email || null,
+    telefone: c.telefone || null,
+    notas: c.notas || null,
+    criado_em: c.criadoEm,
+  };
+}
+
+function linhaParaDeal(l) {
+  return { id: l.id, titulo: l.titulo, valor: l.valor, estagio: l.estagio_id, contatoId: l.contato_id, criadoEm: l.criado_em };
+}
+
+function dealParaLinha(d) {
+  return { id: d.id, titulo: d.titulo, valor: d.valor, estagio_id: d.estagio, contato_id: d.contatoId || null, criado_em: d.criadoEm };
+}
+
+function linhaParaTarefa(l) {
+  return { id: l.id, titulo: l.titulo, vencimento: l.vencimento, concluida: l.concluida, contatoId: l.contato_id, dealId: l.deal_id, criadoEm: l.criado_em };
+}
+
+function tarefaParaLinha(t) {
+  return {
+    id: t.id,
+    titulo: t.titulo,
+    vencimento: t.vencimento || null,
+    concluida: t.concluida,
+    contato_id: t.contatoId || null,
+    deal_id: t.dealId || null,
+    criado_em: t.criadoEm,
+  };
+}
+
+function linhaParaEstagio(l) {
+  return { id: l.id, label: l.label };
+}
+
+// ---------- carregamento e utilitários de acesso ao banco ----------
+
+async function carregarDados() {
+  const [estagiosRes, contatosRes, dealsRes, tarefasRes] = await Promise.all([
+    db.from("estagios").select("*").order("ordem", { ascending: true }),
+    db.from("contacts").select("*"),
+    db.from("deals").select("*"),
+    db.from("tasks").select("*"),
+  ]);
+  for (const resultado of [estagiosRes, contatosRes, dealsRes, tarefasRes]) {
+    if (resultado.error) throw new Error(resultado.error.message);
+  }
+  return {
+    estagios: estagiosRes.data.map(linhaParaEstagio),
+    contacts: contatosRes.data.map(linhaParaContato),
+    deals: dealsRes.data.map(linhaParaDeal),
+    tasks: tarefasRes.data.map(linhaParaTarefa),
+  };
+}
+
+async function comTratativaDeErro(operacaoAsync, mensagemErro) {
   try {
-    const bruto = localStorage.getItem(STORAGE_KEY);
-    if (!bruto) return estadoInicial();
-    const dados = JSON.parse(bruto);
-    return {
-      contacts: dados.contacts || [],
-      deals: dados.deals || [],
-      tasks: dados.tasks || [],
-      estagios: dados.estagios && dados.estagios.length ? dados.estagios : ESTAGIOS_PADRAO.map((e) => ({ ...e })),
-    };
+    await operacaoAsync();
+    return true;
   } catch (erro) {
-    console.error("Falha ao ler dados salvos, iniciando vazio.", erro);
-    return estadoInicial();
+    console.error(erro);
+    alert(`${mensagemErro || "Não foi possível salvar"}: ${erro.message}\n\nVerifique sua conexão e tente de novo.`);
+    return false;
   }
 }
 
-let estado = carregarEstado();
-
-function salvar() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(estado));
+function mesclarPorId(lista, atualizacoes) {
+  const porId = new Map(lista.map((item) => [item.id, item]));
+  atualizacoes.forEach((item) => porId.set(item.id, item));
+  return Array.from(porId.values());
 }
 
 function contatoNome(id) {
@@ -240,7 +302,7 @@ function formularioContato(contato) {
   `,
     (raiz) => {
       raiz.querySelector("#btn-cancelar").addEventListener("click", fecharModal);
-      raiz.querySelector("#form-contato").addEventListener("submit", (evento) => {
+      raiz.querySelector("#form-contato").addEventListener("submit", async (evento) => {
         evento.preventDefault();
         const dados = {
           nome: raiz.querySelector("#c-nome").value.trim(),
@@ -251,12 +313,21 @@ function formularioContato(contato) {
         };
         if (!dados.nome) return;
 
-        if (editando) {
-          Object.assign(contato, dados);
-        } else {
-          estado.contacts.push({ id: uid(), criadoEm: new Date().toISOString(), ...dados });
-        }
-        salvar();
+        const ok = await comTratativaDeErro(async () => {
+          if (editando) {
+            const atualizado = { ...contato, ...dados };
+            const { error } = await db.from("contacts").update(contatoParaLinha(atualizado)).eq("id", contato.id);
+            if (error) throw error;
+            Object.assign(contato, dados);
+          } else {
+            const novoContato = { id: uid(), criadoEm: new Date().toISOString(), ...dados };
+            const { error } = await db.from("contacts").insert(contatoParaLinha(novoContato));
+            if (error) throw error;
+            estado.contacts.push(novoContato);
+          }
+        });
+        if (!ok) return;
+
         fecharModal();
         renderizarContatos(document.getElementById("search-contatos").value);
         renderizarTudo();
@@ -265,12 +336,18 @@ function formularioContato(contato) {
   );
 }
 
-function excluirContato(id) {
+async function excluirContato(id) {
   const emUso = estado.deals.some((d) => d.contatoId === id) || estado.tasks.some((t) => t.contatoId === id);
   const mensagem = emUso
     ? "Este contato está vinculado a negócios e/ou tarefas, que perderão essa referência. Excluir mesmo assim?"
     : "Excluir este contato?";
   if (!confirm(mensagem)) return;
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("contacts").delete().eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível excluir o contato");
+  if (!ok) return;
 
   estado.contacts = estado.contacts.filter((c) => c.id !== id);
   estado.deals.forEach((d) => {
@@ -279,7 +356,6 @@ function excluirContato(id) {
   estado.tasks.forEach((t) => {
     if (t.contatoId === id) t.contatoId = null;
   });
-  salvar();
   renderizarContatos(document.getElementById("search-contatos").value);
   renderizarTudo();
 }
@@ -358,7 +434,7 @@ function formularioNegocio(negocio) {
   `,
     (raiz) => {
       raiz.querySelector("#btn-cancelar").addEventListener("click", fecharModal);
-      raiz.querySelector("#form-negocio").addEventListener("submit", (evento) => {
+      raiz.querySelector("#form-negocio").addEventListener("submit", async (evento) => {
         evento.preventDefault();
         const dados = {
           titulo: raiz.querySelector("#n-titulo").value.trim(),
@@ -368,12 +444,21 @@ function formularioNegocio(negocio) {
         };
         if (!dados.titulo) return;
 
-        if (editando) {
-          Object.assign(negocio, dados);
-        } else {
-          estado.deals.push({ id: uid(), criadoEm: new Date().toISOString(), ...dados });
-        }
-        salvar();
+        const ok = await comTratativaDeErro(async () => {
+          if (editando) {
+            const atualizado = { ...negocio, ...dados };
+            const { error } = await db.from("deals").update(dealParaLinha(atualizado)).eq("id", negocio.id);
+            if (error) throw error;
+            Object.assign(negocio, dados);
+          } else {
+            const novoNegocio = { id: uid(), criadoEm: new Date().toISOString(), ...dados };
+            const { error } = await db.from("deals").insert(dealParaLinha(novoNegocio));
+            if (error) throw error;
+            estado.deals.push(novoNegocio);
+          }
+        });
+        if (!ok) return;
+
         fecharModal();
         renderizarNegocios();
         renderizarDashboard();
@@ -382,13 +467,19 @@ function formularioNegocio(negocio) {
   );
 }
 
-function excluirNegocio(id) {
+async function excluirNegocio(id) {
   if (!confirm("Excluir este negócio?")) return;
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("deals").delete().eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível excluir o negócio");
+  if (!ok) return;
+
   estado.deals = estado.deals.filter((d) => d.id !== id);
   estado.tasks.forEach((t) => {
     if (t.dealId === id) t.dealId = null;
   });
-  salvar();
   renderizarNegocios();
   renderizarDashboard();
 }
@@ -473,7 +564,7 @@ function formularioTarefa(tarefa) {
   `,
     (raiz) => {
       raiz.querySelector("#btn-cancelar").addEventListener("click", fecharModal);
-      raiz.querySelector("#form-tarefa").addEventListener("submit", (evento) => {
+      raiz.querySelector("#form-tarefa").addEventListener("submit", async (evento) => {
         evento.preventDefault();
         const dados = {
           titulo: raiz.querySelector("#t-titulo").value.trim(),
@@ -483,12 +574,21 @@ function formularioTarefa(tarefa) {
         };
         if (!dados.titulo) return;
 
-        if (editando) {
-          Object.assign(tarefa, dados);
-        } else {
-          estado.tasks.push({ id: uid(), concluida: false, criadoEm: new Date().toISOString(), ...dados });
-        }
-        salvar();
+        const ok = await comTratativaDeErro(async () => {
+          if (editando) {
+            const atualizado = { ...tarefa, ...dados };
+            const { error } = await db.from("tasks").update(tarefaParaLinha(atualizado)).eq("id", tarefa.id);
+            if (error) throw error;
+            Object.assign(tarefa, dados);
+          } else {
+            const novaTarefa = { id: uid(), concluida: false, criadoEm: new Date().toISOString(), ...dados };
+            const { error } = await db.from("tasks").insert(tarefaParaLinha(novaTarefa));
+            if (error) throw error;
+            estado.tasks.push(novaTarefa);
+          }
+        });
+        if (!ok) return;
+
         fecharModal();
         renderizarTarefas();
         renderizarDashboard();
@@ -497,10 +597,16 @@ function formularioTarefa(tarefa) {
   );
 }
 
-function excluirTarefa(id) {
+async function excluirTarefa(id) {
   if (!confirm("Excluir esta tarefa?")) return;
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("tasks").delete().eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível excluir a tarefa");
+  if (!ok) return;
+
   estado.tasks = estado.tasks.filter((t) => t.id !== id);
-  salvar();
   renderizarTarefas();
   renderizarDashboard();
 }
@@ -525,18 +631,28 @@ function renderizarFunil() {
     .join("");
 }
 
-function moverEstagio(id, direcao) {
+async function persistirOrdemEstagios() {
+  const { error } = await db.from("estagios").upsert(estado.estagios.map((e, indice) => ({ id: e.id, label: e.label, ordem: indice })));
+  if (error) throw error;
+}
+
+async function moverEstagio(id, direcao) {
   const indice = estado.estagios.findIndex((e) => e.id === id);
   const novoIndice = indice + direcao;
   if (indice < 0 || novoIndice < 0 || novoIndice >= estado.estagios.length) return;
   const [estagio] = estado.estagios.splice(indice, 1);
   estado.estagios.splice(novoIndice, 0, estagio);
-  salvar();
+
+  const ok = await comTratativaDeErro(persistirOrdemEstagios, "Não foi possível salvar a nova ordem");
+  if (!ok) {
+    estado.estagios.splice(novoIndice, 1);
+    estado.estagios.splice(indice, 0, estagio);
+  }
   renderizarFunil();
   renderizarNegocios();
 }
 
-function renomearEstagio(id, novoLabel) {
+async function renomearEstagio(id, novoLabel) {
   const label = novoLabel.trim();
   const estagio = estado.estagios.find((e) => e.id === id);
   if (!estagio) return;
@@ -552,13 +668,22 @@ function renomearEstagio(id, novoLabel) {
     renderizarFunil();
     return;
   }
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("estagios").update({ label }).eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível renomear o estágio");
+  if (!ok) {
+    renderizarFunil();
+    return;
+  }
+
   estagio.label = label;
-  salvar();
   renderizarFunil();
   renderizarNegocios();
 }
 
-function excluirEstagio(id) {
+async function excluirEstagio(id) {
   if (estado.estagios.length <= 1) {
     alert("É preciso manter ao menos um estágio no funil.");
     return;
@@ -569,12 +694,18 @@ function excluirEstagio(id) {
     return;
   }
   if (!confirm(`Excluir o estágio "${estagioLabel(id)}"?`)) return;
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("estagios").delete().eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível excluir o estágio");
+  if (!ok) return;
+
   estado.estagios = estado.estagios.filter((e) => e.id !== id);
-  salvar();
   renderizarFunil();
 }
 
-function adicionarEstagio(label) {
+async function adicionarEstagio(label) {
   const nome = label.trim();
   if (!nome) return;
   const duplicado = estado.estagios.some((e) => removerAcentos(e.label.toLowerCase()) === removerAcentos(nome.toLowerCase()));
@@ -582,8 +713,15 @@ function adicionarEstagio(label) {
     alert("Já existe um estágio com esse nome.");
     return;
   }
-  estado.estagios.push({ id: uid(), label: nome });
-  salvar();
+
+  const novoEstagio = { id: uid(), label: nome };
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("estagios").insert({ id: novoEstagio.id, label: novoEstagio.label, ordem: estado.estagios.length });
+    if (error) throw error;
+  }, "Não foi possível adicionar o estágio");
+  if (!ok) return;
+
+  estado.estagios.push(novoEstagio);
   renderizarFunil();
 }
 
@@ -603,26 +741,52 @@ function exportarBackup() {
   baixarArquivoTexto(JSON.stringify(estado, null, 2), `crm-simples-backup-${hojeISO()}.json`, "application/json");
 }
 
+async function restaurarBackupNoBanco(dados) {
+  // Apaga filhos antes dos pais e insere pais antes dos filhos, por causa das
+  // chaves estrangeiras (deals.estagio_id/contato_id, tasks.contato_id/deal_id).
+  for (const tabela of ["tasks", "deals", "contacts", "estagios"]) {
+    const { error } = await db.from(tabela).delete().neq("id", "");
+    if (error) throw error;
+  }
+  if (dados.estagios.length) {
+    const { error } = await db.from("estagios").insert(dados.estagios.map((e, indice) => ({ id: e.id, label: e.label, ordem: indice })));
+    if (error) throw error;
+  }
+  if (dados.contacts.length) {
+    const { error } = await db.from("contacts").insert(dados.contacts.map(contatoParaLinha));
+    if (error) throw error;
+  }
+  if (dados.deals.length) {
+    const { error } = await db.from("deals").insert(dados.deals.map(dealParaLinha));
+    if (error) throw error;
+  }
+  if (dados.tasks.length) {
+    const { error } = await db.from("tasks").insert(dados.tasks.map(tarefaParaLinha));
+    if (error) throw error;
+  }
+}
+
 function importarBackup(arquivo) {
   const leitor = new FileReader();
-  leitor.onload = () => {
+  leitor.onload = async () => {
+    let dados;
     try {
-      const dados = JSON.parse(leitor.result);
+      dados = JSON.parse(leitor.result);
       if (!Array.isArray(dados.contacts) || !Array.isArray(dados.deals) || !Array.isArray(dados.tasks)) {
         throw new Error("Formato inválido");
       }
-      if (!confirm("Importar irá substituir todos os dados atuais. Continuar?")) return;
-      estado = {
-        contacts: dados.contacts,
-        deals: dados.deals,
-        tasks: dados.tasks,
-        estagios: dados.estagios && dados.estagios.length ? dados.estagios : ESTAGIOS_PADRAO.map((e) => ({ ...e })),
-      };
-      salvar();
-      renderizarTudo();
     } catch (erro) {
       alert("Não foi possível importar o arquivo: " + erro.message);
+      return;
     }
+    if (!confirm("Importar irá substituir todos os dados atuais no banco. Continuar?")) return;
+
+    dados.estagios = dados.estagios && dados.estagios.length ? dados.estagios : ESTAGIOS_PADRAO.map((e) => ({ ...e }));
+    const ok = await comTratativaDeErro(() => restaurarBackupNoBanco(dados), "Não foi possível restaurar o backup");
+    if (!ok) return;
+
+    estado = { contacts: dados.contacts, deals: dados.deals, tasks: dados.tasks, estagios: dados.estagios };
+    renderizarTudo();
   };
   leitor.readAsText(arquivo);
 }
@@ -722,11 +886,12 @@ function baixarModeloNegocios() {
 
 function importarContatosCSV(arquivo) {
   const leitor = new FileReader();
-  leitor.onload = () => {
+  leitor.onload = async () => {
     const linhas = parseCSV(leitor.result);
     let criados = 0;
     let atualizados = 0;
 
+    const paraGravar = [];
     linhas.forEach((linha) => {
       const nome = linha.nome;
       if (!nome) return;
@@ -741,20 +906,26 @@ function importarContatosCSV(arquivo) {
         ? estado.contacts.find((c) => c.email && c.email.toLowerCase() === dados.email.toLowerCase())
         : null;
       if (existente) {
-        Object.assign(existente, dados);
         atualizados++;
+        paraGravar.push({ ...existente, ...dados });
       } else {
-        estado.contacts.push({ id: uid(), criadoEm: new Date().toISOString(), ...dados });
         criados++;
+        paraGravar.push({ id: uid(), criadoEm: new Date().toISOString(), ...dados });
       }
     });
 
-    if (criados + atualizados === 0) {
+    if (!paraGravar.length) {
       alert("Nenhum contato válido encontrado no arquivo (é preciso ao menos a coluna 'nome').");
       return;
     }
 
-    salvar();
+    const ok = await comTratativaDeErro(async () => {
+      const { error } = await db.from("contacts").upsert(paraGravar.map(contatoParaLinha));
+      if (error) throw error;
+    }, "Não foi possível importar os contatos");
+    if (!ok) return;
+
+    estado.contacts = mesclarPorId(estado.contacts, paraGravar);
     renderizarContatos(document.getElementById("search-contatos").value);
     renderizarTudo();
     alert(`Importação concluída: ${criados} contato(s) novo(s), ${atualizados} atualizado(s).`);
@@ -764,11 +935,11 @@ function importarContatosCSV(arquivo) {
 
 function importarNegociosCSV(arquivo) {
   const leitor = new FileReader();
-  leitor.onload = () => {
+  leitor.onload = async () => {
     const linhas = parseCSV(leitor.result);
-    let criados = 0;
     let semContato = 0;
 
+    const paraGravar = [];
     linhas.forEach((linha) => {
       const titulo = linha.titulo;
       if (!titulo) return;
@@ -780,7 +951,7 @@ function importarNegociosCSV(arquivo) {
       if (!contato && nomeContato) contato = estado.contacts.find((c) => c.nome.toLowerCase() === nomeContato);
       if (!contato) semContato++;
 
-      estado.deals.push({
+      paraGravar.push({
         id: uid(),
         criadoEm: new Date().toISOString(),
         titulo,
@@ -788,18 +959,23 @@ function importarNegociosCSV(arquivo) {
         estagio: normalizarEstagio(linha.estagio),
         contatoId: contato ? contato.id : null,
       });
-      criados++;
     });
 
-    if (criados === 0) {
+    if (!paraGravar.length) {
       alert("Nenhum negócio válido encontrado no arquivo (é preciso ao menos a coluna 'titulo').");
       return;
     }
 
-    salvar();
+    const ok = await comTratativaDeErro(async () => {
+      const { error } = await db.from("deals").insert(paraGravar.map(dealParaLinha));
+      if (error) throw error;
+    }, "Não foi possível importar os negócios");
+    if (!ok) return;
+
+    estado.deals.push(...paraGravar);
     renderizarNegocios();
     renderizarDashboard();
-    alert(`Importação concluída: ${criados} negócio(s) importado(s), ${semContato} sem contato correspondente.`);
+    alert(`Importação concluída: ${paraGravar.length} negócio(s) importado(s), ${semContato} sem contato correspondente.`);
   };
   leitor.readAsText(arquivo);
 }
@@ -882,18 +1058,24 @@ kanbanEl.addEventListener("dragover", (evento) => {
   }
 });
 
-kanbanEl.addEventListener("drop", (evento) => {
+kanbanEl.addEventListener("drop", async (evento) => {
   const coluna = evento.target.closest(".kanban-column");
   if (!coluna) return;
   evento.preventDefault();
   const id = evento.dataTransfer.getData("text/plain");
   const negocio = estado.deals.find((d) => d.id === id);
-  if (negocio) {
-    negocio.estagio = coluna.dataset.estagio;
-    salvar();
-    renderizarNegocios();
-    renderizarDashboard();
-  }
+  if (!negocio) return;
+
+  const novoEstagio = coluna.dataset.estagio;
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("deals").update({ estagio_id: novoEstagio }).eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível mover o negócio");
+  if (!ok) return;
+
+  negocio.estagio = novoEstagio;
+  renderizarNegocios();
+  renderizarDashboard();
 });
 
 document.getElementById("btn-nova-tarefa").addEventListener("click", () => formularioTarefa(null));
@@ -903,12 +1085,18 @@ document.getElementById("lista-tarefas").addEventListener("click", (evento) => {
   if (editarId) formularioTarefa(estado.tasks.find((t) => t.id === editarId));
   if (excluirId) excluirTarefa(excluirId);
 });
-document.getElementById("lista-tarefas").addEventListener("change", (evento) => {
+document.getElementById("lista-tarefas").addEventListener("change", async (evento) => {
   const id = evento.target.dataset.alternarTarefa;
   if (!id) return;
   const tarefa = estado.tasks.find((t) => t.id === id);
-  tarefa.concluida = evento.target.checked;
-  salvar();
+  const novoValor = evento.target.checked;
+
+  const ok = await comTratativaDeErro(async () => {
+    const { error } = await db.from("tasks").update({ concluida: novoValor }).eq("id", id);
+    if (error) throw error;
+  }, "Não foi possível atualizar a tarefa");
+
+  tarefa.concluida = ok ? novoValor : tarefa.concluida;
   renderizarTarefas();
   renderizarDashboard();
 });
@@ -945,7 +1133,26 @@ document.getElementById("form-novo-estagio").addEventListener("submit", (evento)
 
 // ---------- login ----------
 
-function mostrarApp(usuario) {
+async function mostrarApp(usuario) {
+  const botaoEntrar = document.querySelector("#form-login button[type=submit]");
+  const status = document.getElementById("login-status");
+  botaoEntrar.disabled = true;
+  status.hidden = false;
+  status.textContent = "Carregando dados...";
+
+  try {
+    estado = await carregarDados();
+  } catch (erro) {
+    console.error(erro);
+    status.hidden = true;
+    botaoEntrar.disabled = false;
+    alert("Não foi possível conectar ao banco de dados: " + erro.message);
+    mostrarLogin();
+    return;
+  }
+
+  botaoEntrar.disabled = false;
+  status.hidden = true;
   document.getElementById("tela-login").hidden = true;
   document.getElementById("app-root").hidden = false;
   document.getElementById("usuario-logado").textContent = `Olá, ${usuario}`;
@@ -970,8 +1177,9 @@ document.getElementById("form-login").addEventListener("submit", async (evento) 
     document.getElementById("login-erro").hidden = false;
     return;
   }
+  document.getElementById("login-erro").hidden = true;
   localStorage.setItem(SESSAO_KEY, encontrado.usuario);
-  mostrarApp(encontrado.usuario);
+  await mostrarApp(encontrado.usuario);
 });
 
 document.getElementById("btn-logout").addEventListener("click", () => {
