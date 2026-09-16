@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CRM Simples</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <h1>CRM Simples</h1>
+      <nav class="tabs">
+        <button class="tab-btn active" data-view="dashboard">Dashboard</button>
+        <button class="tab-btn" data-view="contatos">Contatos</button>
+        <button class="tab-btn" data-view="negocios">Negócios</button>
+        <button class="tab-btn" data-view="tarefas">Tarefas</button>
+      </nav>
+      <div class="topbar-actions">
+        <button id="btn-export" class="btn btn-ghost" title="Exportar backup em JSON">Exportar</button>
+        <label class="btn btn-ghost" title="Importar backup em JSON">
+          Importar
+          <input type="file" id="input-import" accept="application/json" hidden />
+        </label>
+      </div>
+    </header>
+
+    <main>
+      <section id="view-dashboard" class="view active">
+        <div class="stats-grid" id="stats-grid"></div>
+        <div class="dashboard-columns">
+          <div class="panel">
+            <h2>Tarefas em atraso</h2>
+            <ul id="overdue-tasks" class="simple-list"></ul>
+          </div>
+          <div class="panel">
+            <h2>Negócios recentes</h2>
+            <ul id="recent-deals" class="simple-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-contatos" class="view">
+        <div class="view-header">
+          <input type="search" id="search-contatos" placeholder="Buscar por nome ou empresa..." />
+          <button class="btn btn-primary" id="btn-novo-contato">+ Novo contato</button>
+        </div>
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Empresa</th>
+              <th>E-mail</th>
+              <th>Telefone</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tabela-contatos"></tbody>
+        </table>
+        <p id="contatos-vazio" class="empty-state" hidden>Nenhum contato cadastrado ainda.</p>
+      </section>
+
+      <section id="view-negocios" class="view">
+        <div class="view-header">
+          <div class="pipeline-total" id="pipeline-total"></div>
+          <button class="btn btn-primary" id="btn-novo-negocio">+ Novo negócio</button>
+        </div>
+        <div class="kanban" id="kanban"></div>
+      </section>
+
+      <section id="view-tarefas" class="view">
+        <div class="view-header">
+          <div class="tarefas-filtros">
+            <button class="filtro-btn active" data-filtro="pendentes">Pendentes</button>
+            <button class="filtro-btn" data-filtro="concluidas">Concluídas</button>
+            <button class="filtro-btn" data-filtro="todas">Todas</button>
+          </div>
+          <button class="btn btn-primary" id="btn-nova-tarefa">+ Nova tarefa</button>
+        </div>
+        <ul class="task-list" id="lista-tarefas"></ul>
+        <p id="tarefas-vazio" class="empty-state" hidden>Nenhuma tarefa aqui.</p>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <div class="modal" id="modal-content"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
