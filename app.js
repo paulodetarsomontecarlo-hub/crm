@@ -488,14 +488,18 @@ function excluirTarefa(id) {
 
 // ---------- exportar / importar ----------
 
-function exportarBackup() {
-  const blob = new Blob([JSON.stringify(estado, null, 2)], { type: "application/json" });
+function baixarArquivoTexto(conteudo, nomeArquivo, tipo) {
+  const blob = new Blob([conteudo], { type: tipo });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `crm-simples-backup-${hojeISO()}.json`;
+  link.download = nomeArquivo;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+function exportarBackup() {
+  baixarArquivoTexto(JSON.stringify(estado, null, 2), `crm-simples-backup-${hojeISO()}.json`, "application/json");
 }
 
 function importarBackup(arquivo) {
@@ -517,6 +521,182 @@ function importarBackup(arquivo) {
   leitor.readAsText(arquivo);
 }
 
+// ---------- importar CSV (contatos e negócios) ----------
+
+function removerAcentos(texto) {
+  return texto.normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
+function parseCSV(texto) {
+  const linhas = texto
+    .replace(/^﻿/, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .filter((linha) => linha.trim() !== "");
+  if (!linhas.length) return [];
+
+  const delimitador = linhas[0].split(";").length > linhas[0].split(",").length ? ";" : ",";
+
+  function parseLinha(linha) {
+    const campos = [];
+    let atual = "";
+    let dentroAspas = false;
+    for (let i = 0; i < linha.length; i++) {
+      const char = linha[i];
+      if (dentroAspas) {
+        if (char === '"') {
+          if (linha[i + 1] === '"') {
+            atual += '"';
+            i++;
+          } else {
+            dentroAspas = false;
+          }
+        } else {
+          atual += char;
+        }
+      } else if (char === '"') {
+        dentroAspas = true;
+      } else if (char === delimitador) {
+        campos.push(atual.trim());
+        atual = "";
+      } else {
+        atual += char;
+      }
+    }
+    campos.push(atual.trim());
+    return campos;
+  }
+
+  const cabecalho = parseLinha(linhas[0]).map((h) => removerAcentos(h.toLowerCase()));
+  return linhas.slice(1).map((linha) => {
+    const valores = parseLinha(linha);
+    const objeto = {};
+    cabecalho.forEach((chave, indice) => {
+      objeto[chave] = (valores[indice] || "").trim();
+    });
+    return objeto;
+  });
+}
+
+function parseValorMonetario(texto) {
+  if (!texto) return 0;
+  let limpo = texto.replace(/[^\d,.-]/g, "");
+  if (limpo.includes(",") && limpo.includes(".")) {
+    limpo = limpo.replace(/\./g, "").replace(",", ".");
+  } else if (limpo.includes(",")) {
+    limpo = limpo.replace(",", ".");
+  }
+  const numero = parseFloat(limpo);
+  return Number.isFinite(numero) ? Math.round(numero * 100) : 0;
+}
+
+function normalizarEstagio(texto) {
+  if (!texto) return "lead";
+  const chave = removerAcentos(texto.trim().toLowerCase());
+  const encontrado = ESTAGIOS.find((e) => e.id === chave || removerAcentos(e.label.toLowerCase()) === chave);
+  return encontrado ? encontrado.id : "lead";
+}
+
+function baixarModeloContatos() {
+  const conteudo = ["nome,empresa,email,telefone,notas", "Maria Silva,Acme Ltda,maria@acme.com,(11) 99999-0000,Cliente desde 2024"].join(
+    "\n"
+  );
+  baixarArquivoTexto("﻿" + conteudo, "crm-simples-modelo-contatos.csv", "text/csv;charset=utf-8");
+}
+
+function baixarModeloNegocios() {
+  const conteudo = [
+    "titulo,valor,estagio,contato_nome,contato_email",
+    "Venda Software X,1500.00,Lead,Maria Silva,maria@acme.com",
+  ].join("\n");
+  baixarArquivoTexto("﻿" + conteudo, "crm-simples-modelo-negocios.csv", "text/csv;charset=utf-8");
+}
+
+function importarContatosCSV(arquivo) {
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    const linhas = parseCSV(leitor.result);
+    let criados = 0;
+    let atualizados = 0;
+
+    linhas.forEach((linha) => {
+      const nome = linha.nome;
+      if (!nome) return;
+      const dados = {
+        nome,
+        empresa: linha.empresa || "",
+        email: linha.email || "",
+        telefone: linha.telefone || "",
+        notas: linha.notas || "",
+      };
+      const existente = dados.email
+        ? estado.contacts.find((c) => c.email && c.email.toLowerCase() === dados.email.toLowerCase())
+        : null;
+      if (existente) {
+        Object.assign(existente, dados);
+        atualizados++;
+      } else {
+        estado.contacts.push({ id: uid(), criadoEm: new Date().toISOString(), ...dados });
+        criados++;
+      }
+    });
+
+    if (criados + atualizados === 0) {
+      alert("Nenhum contato válido encontrado no arquivo (é preciso ao menos a coluna 'nome').");
+      return;
+    }
+
+    salvar();
+    renderizarContatos(document.getElementById("search-contatos").value);
+    renderizarTudo();
+    alert(`Importação concluída: ${criados} contato(s) novo(s), ${atualizados} atualizado(s).`);
+  };
+  leitor.readAsText(arquivo);
+}
+
+function importarNegociosCSV(arquivo) {
+  const leitor = new FileReader();
+  leitor.onload = () => {
+    const linhas = parseCSV(leitor.result);
+    let criados = 0;
+    let semContato = 0;
+
+    linhas.forEach((linha) => {
+      const titulo = linha.titulo;
+      if (!titulo) return;
+
+      const email = (linha.contato_email || "").toLowerCase();
+      const nomeContato = (linha.contato_nome || "").toLowerCase();
+      let contato = null;
+      if (email) contato = estado.contacts.find((c) => c.email && c.email.toLowerCase() === email);
+      if (!contato && nomeContato) contato = estado.contacts.find((c) => c.nome.toLowerCase() === nomeContato);
+      if (!contato) semContato++;
+
+      estado.deals.push({
+        id: uid(),
+        criadoEm: new Date().toISOString(),
+        titulo,
+        valor: parseValorMonetario(linha.valor),
+        estagio: normalizarEstagio(linha.estagio),
+        contatoId: contato ? contato.id : null,
+      });
+      criados++;
+    });
+
+    if (criados === 0) {
+      alert("Nenhum negócio válido encontrado no arquivo (é preciso ao menos a coluna 'titulo').");
+      return;
+    }
+
+    salvar();
+    renderizarNegocios();
+    renderizarDashboard();
+    alert(`Importação concluída: ${criados} negócio(s) importado(s), ${semContato} sem contato correspondente.`);
+  };
+  leitor.readAsText(arquivo);
+}
+
 // ---------- eventos globais ----------
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -532,6 +712,12 @@ document.getElementById("input-import").addEventListener("change", (evento) => {
 
 document.getElementById("btn-novo-contato").addEventListener("click", () => formularioContato(null));
 document.getElementById("search-contatos").addEventListener("input", (evento) => renderizarContatos(evento.target.value));
+document.getElementById("btn-modelo-contatos").addEventListener("click", baixarModeloContatos);
+document.getElementById("input-importar-contatos").addEventListener("change", (evento) => {
+  const arquivo = evento.target.files[0];
+  if (arquivo) importarContatosCSV(arquivo);
+  evento.target.value = "";
+});
 document.getElementById("tabela-contatos").addEventListener("click", (evento) => {
   const editarId = evento.target.dataset.editarContato;
   const excluirId = evento.target.dataset.excluirContato;
@@ -540,6 +726,12 @@ document.getElementById("tabela-contatos").addEventListener("click", (evento) =>
 });
 
 document.getElementById("btn-novo-negocio").addEventListener("click", () => formularioNegocio(null));
+document.getElementById("btn-modelo-negocios").addEventListener("click", baixarModeloNegocios);
+document.getElementById("input-importar-negocios").addEventListener("change", (evento) => {
+  const arquivo = evento.target.files[0];
+  if (arquivo) importarNegociosCSV(arquivo);
+  evento.target.value = "";
+});
 
 const kanbanEl = document.getElementById("kanban");
 

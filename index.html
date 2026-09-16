@@ -43,8 +43,16 @@
       <section id="view-contatos" class="view">
         <div class="view-header">
           <input type="search" id="search-contatos" placeholder="Buscar por nome ou empresa..." />
-          <button class="btn btn-primary" id="btn-novo-contato">+ Novo contato</button>
+          <div class="view-header-actions">
+            <button class="btn btn-ghost" id="btn-modelo-contatos">Baixar modelo CSV</button>
+            <label class="btn btn-ghost">
+              Importar CSV
+              <input type="file" id="input-importar-contatos" accept=".csv,text/csv" hidden />
+            </label>
+            <button class="btn btn-primary" id="btn-novo-contato">+ Novo contato</button>
+          </div>
         </div>
+        <p class="import-hint">CSV com colunas: <code>nome, empresa, email, telefone, notas</code>. Contatos com o mesmo e-mail de um já cadastrado são atualizados em vez de duplicados.</p>
         <table class="data-table">
           <thead>
             <tr>
@@ -63,8 +71,16 @@
       <section id="view-negocios" class="view">
         <div class="view-header">
           <div class="pipeline-total" id="pipeline-total"></div>
-          <button class="btn btn-primary" id="btn-novo-negocio">+ Novo negócio</button>
+          <div class="view-header-actions">
+            <button class="btn btn-ghost" id="btn-modelo-negocios">Baixar modelo CSV</button>
+            <label class="btn btn-ghost">
+              Importar CSV
+              <input type="file" id="input-importar-negocios" accept=".csv,text/csv" hidden />
+            </label>
+            <button class="btn btn-primary" id="btn-novo-negocio">+ Novo negócio</button>
+          </div>
         </div>
+        <p class="import-hint">CSV com colunas: <code>titulo, valor, estagio, contato_nome, contato_email</code>. Estágio aceita Lead/Proposta/Negociação/Ganho/Perdido (padrão: Lead). O contato é vinculado por e-mail ou, na falta dele, pelo nome — se nenhum bater, o negócio fica sem contato.</p>
         <div class="kanban" id="kanban"></div>
       </section>
 
