@@ -218,6 +218,10 @@ body {
   flex-wrap: wrap;
 }
 
+.view-header-actions select {
+  width: auto;
+}
+
 .import-hint {
   font-size: 0.8rem;
   color: var(--text-muted);

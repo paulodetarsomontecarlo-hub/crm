@@ -66,7 +66,9 @@ python3 -m http.server 8000
   por nome/empresa.
 - **Negócios** — quadro Kanban por estágio, com valor e contato vinculado. O
   estágio é trocado arrastando o card para outra coluna (o quadro rola
-  horizontalmente sozinho se você arrastar perto da borda).
+  horizontalmente sozinho se você arrastar perto da borda). O seletor
+  **Filtrar por estágio** mostra só a coluna escolhida, útil quando o funil
+  tem muitos estágios.
 - **Tarefas** — lista com data de vencimento, vínculo opcional a um contato
   e/ou negócio, marcação de concluída e destaque para tarefas atrasadas.
 - **Funil** — cadastro dos estágios usados no Kanban de Negócios: adicionar,

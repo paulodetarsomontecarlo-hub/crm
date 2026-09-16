@@ -362,13 +362,28 @@ async function excluirContato(id) {
 
 // ---------- negócios (kanban) ----------
 
+let filtroEstagioNegocios = "";
+
 function renderizarNegocios() {
   const total = estado.deals
     .filter((d) => d.estagio !== "perdido")
     .reduce((soma, d) => soma + d.valor, 0);
   document.getElementById("pipeline-total").textContent = `Total (exceto perdidos): ${formatarMoeda(total)}`;
 
-  document.getElementById("kanban").innerHTML = estado.estagios.map((estagio) => {
+  if (filtroEstagioNegocios && !estado.estagios.some((e) => e.id === filtroEstagioNegocios)) {
+    filtroEstagioNegocios = "";
+  }
+  document.getElementById("filtro-estagio-negocios").innerHTML =
+    `<option value="">Todos os estágios</option>` +
+    estado.estagios
+      .map((e) => `<option value="${e.id}" ${e.id === filtroEstagioNegocios ? "selected" : ""}>${e.label}</option>`)
+      .join("");
+
+  const estagiosVisiveis = filtroEstagioNegocios
+    ? estado.estagios.filter((e) => e.id === filtroEstagioNegocios)
+    : estado.estagios;
+
+  document.getElementById("kanban").innerHTML = estagiosVisiveis.map((estagio) => {
     const negocios = estado.deals.filter((d) => d.estagio === estagio.id);
     const subtotal = negocios.reduce((soma, d) => soma + d.valor, 0);
     return `
@@ -1009,6 +1024,10 @@ document.getElementById("tabela-contatos").addEventListener("click", (evento) =>
 });
 
 document.getElementById("btn-novo-negocio").addEventListener("click", () => formularioNegocio(null));
+document.getElementById("filtro-estagio-negocios").addEventListener("change", (evento) => {
+  filtroEstagioNegocios = evento.target.value;
+  renderizarNegocios();
+});
 document.getElementById("btn-modelo-negocios").addEventListener("click", baixarModeloNegocios);
 document.getElementById("input-importar-negocios").addEventListener("change", (evento) => {
   const arquivo = evento.target.files[0];
