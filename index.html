@@ -3,25 +3,45 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>CRM Simples</title>
+<title>m4t CRM</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="app">
+  <div class="login-screen" id="tela-login">
+    <form class="login-card" id="form-login">
+      <h1>m4t CRM</h1>
+      <p class="login-subtitle">Entre para continuar</p>
+      <div class="form-field">
+        <label for="login-usuario">Usuário</label>
+        <input type="text" id="login-usuario" autocomplete="username" required autofocus />
+      </div>
+      <div class="form-field">
+        <label for="login-senha">Senha</label>
+        <input type="password" id="login-senha" autocomplete="current-password" required />
+      </div>
+      <p class="login-erro" id="login-erro" hidden>Usuário ou senha inválidos.</p>
+      <button type="submit" class="btn btn-primary login-btn">Entrar</button>
+    </form>
+  </div>
+
+  <div class="app" id="app-root" hidden>
     <header class="topbar">
-      <h1>CRM Simples</h1>
+      <h1>m4t CRM</h1>
       <nav class="tabs">
         <button class="tab-btn active" data-view="dashboard">Dashboard</button>
         <button class="tab-btn" data-view="contatos">Contatos</button>
         <button class="tab-btn" data-view="negocios">Negócios</button>
         <button class="tab-btn" data-view="tarefas">Tarefas</button>
+        <button class="tab-btn" data-view="funil">Funil</button>
       </nav>
       <div class="topbar-actions">
+        <span class="usuario-logado" id="usuario-logado"></span>
         <button id="btn-export" class="btn btn-ghost" title="Exportar backup em JSON">Exportar</button>
         <label class="btn btn-ghost" title="Importar backup em JSON">
           Importar
           <input type="file" id="input-import" accept="application/json" hidden />
         </label>
+        <button id="btn-logout" class="btn btn-ghost" title="Sair">Sair</button>
       </div>
     </header>
 
@@ -95,6 +115,15 @@
         </div>
         <ul class="task-list" id="lista-tarefas"></ul>
         <p id="tarefas-vazio" class="empty-state" hidden>Nenhuma tarefa aqui.</p>
+      </section>
+
+      <section id="view-funil" class="view">
+        <p class="import-hint">Estágios do quadro de negócios (Kanban). Use as setas para reordenar; um estágio só pode ser excluído se não houver negócios nele.</p>
+        <ul class="stage-list" id="lista-estagios"></ul>
+        <form id="form-novo-estagio" class="stage-add-form">
+          <input type="text" id="novo-estagio-nome" placeholder="Nome do novo estágio" required />
+          <button type="submit" class="btn btn-primary">Adicionar estágio</button>
+        </form>
       </section>
     </main>
   </div>

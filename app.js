@@ -1,8 +1,25 @@
 "use strict";
 
 const STORAGE_KEY = "crm-simples:data";
+const SESSAO_KEY = "crm-simples:sessao";
 
-const ESTAGIOS = [
+// Sem backend, isso é só uma trava de acesso, não segurança de verdade:
+// qualquer pessoa com o arquivo app.js pode ler esses hashes ou pular a
+// checagem direto no devtools. Não reutilize essas senhas em nada sensível.
+const USUARIOS = [
+  { usuario: "matheus", hash: "bacb308a6be320fac68d56e5fa1bc4c4a3458c8bb68d4a0855047079f712c79e" },
+  { usuario: "paulo", hash: "8d969eef6ecad3c29a3a629280e686cf0c3f5d5a86aff3ca12020c923adc6c92" },
+];
+
+async function sha256Hex(texto) {
+  const dados = new TextEncoder().encode(texto);
+  const bufferHash = await crypto.subtle.digest("SHA-256", dados);
+  return Array.from(new Uint8Array(bufferHash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+const ESTAGIOS_PADRAO = [
   { id: "lead", label: "Lead" },
   { id: "proposta", label: "Proposta" },
   { id: "negociacao", label: "Negociação" },
@@ -11,7 +28,7 @@ const ESTAGIOS = [
 ];
 
 function estagioLabel(id) {
-  return (ESTAGIOS.find((e) => e.id === id) || {}).label || id;
+  return (estado.estagios.find((e) => e.id === id) || {}).label || id;
 }
 
 function uid() {
@@ -36,7 +53,7 @@ function hojeISO() {
 }
 
 function estadoInicial() {
-  return { contacts: [], deals: [], tasks: [] };
+  return { contacts: [], deals: [], tasks: [], estagios: ESTAGIOS_PADRAO.map((e) => ({ ...e })) };
 }
 
 function carregarEstado() {
@@ -48,6 +65,7 @@ function carregarEstado() {
       contacts: dados.contacts || [],
       deals: dados.deals || [],
       tasks: dados.tasks || [],
+      estagios: dados.estagios && dados.estagios.length ? dados.estagios : ESTAGIOS_PADRAO.map((e) => ({ ...e })),
     };
   } catch (erro) {
     console.error("Falha ao ler dados salvos, iniciando vazio.", erro);
@@ -82,6 +100,7 @@ function renderizarView(viewId) {
   if (viewId === "contatos") renderizarContatos();
   if (viewId === "negocios") renderizarNegocios();
   if (viewId === "tarefas") renderizarTarefas();
+  if (viewId === "funil") renderizarFunil();
 }
 
 function renderizarTudo() {
@@ -273,7 +292,7 @@ function renderizarNegocios() {
     .reduce((soma, d) => soma + d.valor, 0);
   document.getElementById("pipeline-total").textContent = `Total (exceto perdidos): ${formatarMoeda(total)}`;
 
-  document.getElementById("kanban").innerHTML = ESTAGIOS.map((estagio) => {
+  document.getElementById("kanban").innerHTML = estado.estagios.map((estagio) => {
     const negocios = estado.deals.filter((d) => d.estagio === estagio.id);
     const subtotal = negocios.reduce((soma, d) => soma + d.valor, 0);
     return `
@@ -300,14 +319,14 @@ function renderizarNegocios() {
 
 function formularioNegocio(negocio) {
   const editando = Boolean(negocio);
-  negocio = negocio || { titulo: "", contatoId: "", valor: 0, estagio: "lead" };
+  negocio = negocio || { titulo: "", contatoId: "", valor: 0, estagio: estado.estagios[0].id };
 
   const opcoesContato = `<option value="">Sem contato vinculado</option>` +
     estado.contacts
       .map((c) => `<option value="${c.id}" ${c.id === negocio.contatoId ? "selected" : ""}>${c.nome}</option>`)
       .join("");
 
-  const opcoesEstagio = ESTAGIOS
+  const opcoesEstagio = estado.estagios
     .map((e) => `<option value="${e.id}" ${e.id === negocio.estagio ? "selected" : ""}>${e.label}</option>`)
     .join("");
 
@@ -486,6 +505,88 @@ function excluirTarefa(id) {
   renderizarDashboard();
 }
 
+// ---------- funil (estágios) ----------
+
+function renderizarFunil() {
+  document.getElementById("lista-estagios").innerHTML = estado.estagios
+    .map((estagio, indice) => {
+      const negocios = estado.deals.filter((d) => d.estagio === estagio.id).length;
+      return `
+        <li class="stage-item" data-estagio-id="${estagio.id}">
+          <div class="stage-order-btns">
+            <button type="button" data-mover-estagio="${estagio.id}" data-direcao="-1" ${indice === 0 ? "disabled" : ""} title="Mover para cima">▲</button>
+            <button type="button" data-mover-estagio="${estagio.id}" data-direcao="1" ${indice === estado.estagios.length - 1 ? "disabled" : ""} title="Mover para baixo">▼</button>
+          </div>
+          <input type="text" data-renomear-estagio="${estagio.id}" value="${estagio.label}" />
+          <span class="stage-count">${negocios} negócio(s)</span>
+          <button type="button" class="btn btn-danger btn-small" data-excluir-estagio="${estagio.id}">Excluir</button>
+        </li>`;
+    })
+    .join("");
+}
+
+function moverEstagio(id, direcao) {
+  const indice = estado.estagios.findIndex((e) => e.id === id);
+  const novoIndice = indice + direcao;
+  if (indice < 0 || novoIndice < 0 || novoIndice >= estado.estagios.length) return;
+  const [estagio] = estado.estagios.splice(indice, 1);
+  estado.estagios.splice(novoIndice, 0, estagio);
+  salvar();
+  renderizarFunil();
+  renderizarNegocios();
+}
+
+function renomearEstagio(id, novoLabel) {
+  const label = novoLabel.trim();
+  const estagio = estado.estagios.find((e) => e.id === id);
+  if (!estagio) return;
+  if (!label) {
+    renderizarFunil();
+    return;
+  }
+  const duplicado = estado.estagios.some(
+    (e) => e.id !== id && removerAcentos(e.label.toLowerCase()) === removerAcentos(label.toLowerCase())
+  );
+  if (duplicado) {
+    alert("Já existe um estágio com esse nome.");
+    renderizarFunil();
+    return;
+  }
+  estagio.label = label;
+  salvar();
+  renderizarFunil();
+  renderizarNegocios();
+}
+
+function excluirEstagio(id) {
+  if (estado.estagios.length <= 1) {
+    alert("É preciso manter ao menos um estágio no funil.");
+    return;
+  }
+  const emUso = estado.deals.some((d) => d.estagio === id);
+  if (emUso) {
+    alert("Não é possível excluir: há negócio(s) neste estágio. Mova-os para outro estágio primeiro.");
+    return;
+  }
+  if (!confirm(`Excluir o estágio "${estagioLabel(id)}"?`)) return;
+  estado.estagios = estado.estagios.filter((e) => e.id !== id);
+  salvar();
+  renderizarFunil();
+}
+
+function adicionarEstagio(label) {
+  const nome = label.trim();
+  if (!nome) return;
+  const duplicado = estado.estagios.some((e) => removerAcentos(e.label.toLowerCase()) === removerAcentos(nome.toLowerCase()));
+  if (duplicado) {
+    alert("Já existe um estágio com esse nome.");
+    return;
+  }
+  estado.estagios.push({ id: uid(), label: nome });
+  salvar();
+  renderizarFunil();
+}
+
 // ---------- exportar / importar ----------
 
 function baixarArquivoTexto(conteudo, nomeArquivo, tipo) {
@@ -511,7 +612,12 @@ function importarBackup(arquivo) {
         throw new Error("Formato inválido");
       }
       if (!confirm("Importar irá substituir todos os dados atuais. Continuar?")) return;
-      estado = { contacts: dados.contacts, deals: dados.deals, tasks: dados.tasks };
+      estado = {
+        contacts: dados.contacts,
+        deals: dados.deals,
+        tasks: dados.tasks,
+        estagios: dados.estagios && dados.estagios.length ? dados.estagios : ESTAGIOS_PADRAO.map((e) => ({ ...e })),
+      };
       salvar();
       renderizarTudo();
     } catch (erro) {
@@ -592,10 +698,11 @@ function parseValorMonetario(texto) {
 }
 
 function normalizarEstagio(texto) {
-  if (!texto) return "lead";
+  const padrao = estado.estagios[0].id;
+  if (!texto) return padrao;
   const chave = removerAcentos(texto.trim().toLowerCase());
-  const encontrado = ESTAGIOS.find((e) => e.id === chave || removerAcentos(e.label.toLowerCase()) === chave);
-  return encontrado ? encontrado.id : "lead";
+  const encontrado = estado.estagios.find((e) => e.id === chave || removerAcentos(e.label.toLowerCase()) === chave);
+  return encontrado ? encontrado.id : padrao;
 }
 
 function baixarModeloContatos() {
@@ -756,12 +863,23 @@ kanbanEl.addEventListener("dragend", (evento) => {
   kanbanEl.querySelectorAll(".kanban-column").forEach((c) => c.classList.remove("drag-over"));
 });
 
+const ZONA_AUTOSCROLL_PX = 60;
+
 kanbanEl.addEventListener("dragover", (evento) => {
   const coluna = evento.target.closest(".kanban-column");
   if (!coluna) return;
   evento.preventDefault();
   evento.dataTransfer.dropEffect = "move";
   kanbanEl.querySelectorAll(".kanban-column").forEach((c) => c.classList.toggle("drag-over", c === coluna));
+
+  const limites = kanbanEl.getBoundingClientRect();
+  const distanciaEsquerda = evento.clientX - limites.left;
+  const distanciaDireita = limites.right - evento.clientX;
+  if (distanciaEsquerda < ZONA_AUTOSCROLL_PX) {
+    kanbanEl.scrollLeft -= (ZONA_AUTOSCROLL_PX - distanciaEsquerda) / 2;
+  } else if (distanciaDireita < ZONA_AUTOSCROLL_PX) {
+    kanbanEl.scrollLeft += (ZONA_AUTOSCROLL_PX - distanciaDireita) / 2;
+  }
 });
 
 kanbanEl.addEventListener("drop", (evento) => {
@@ -803,4 +921,67 @@ document.querySelectorAll(".filtro-btn").forEach((btn) => {
   });
 });
 
-renderizarDashboard();
+const listaEstagiosEl = document.getElementById("lista-estagios");
+
+listaEstagiosEl.addEventListener("click", (evento) => {
+  const moverId = evento.target.dataset.moverEstagio;
+  const excluirId = evento.target.dataset.excluirEstagio;
+  if (moverId) moverEstagio(moverId, Number(evento.target.dataset.direcao));
+  if (excluirId) excluirEstagio(excluirId);
+});
+
+listaEstagiosEl.addEventListener("change", (evento) => {
+  const id = evento.target.dataset.renomearEstagio;
+  if (!id) return;
+  renomearEstagio(id, evento.target.value);
+});
+
+document.getElementById("form-novo-estagio").addEventListener("submit", (evento) => {
+  evento.preventDefault();
+  const input = document.getElementById("novo-estagio-nome");
+  adicionarEstagio(input.value);
+  input.value = "";
+});
+
+// ---------- login ----------
+
+function mostrarApp(usuario) {
+  document.getElementById("tela-login").hidden = true;
+  document.getElementById("app-root").hidden = false;
+  document.getElementById("usuario-logado").textContent = `Olá, ${usuario}`;
+  renderizarDashboard();
+}
+
+function mostrarLogin() {
+  document.getElementById("app-root").hidden = true;
+  document.getElementById("tela-login").hidden = false;
+  document.getElementById("login-usuario").value = "";
+  document.getElementById("login-senha").value = "";
+  document.getElementById("login-erro").hidden = true;
+}
+
+document.getElementById("form-login").addEventListener("submit", async (evento) => {
+  evento.preventDefault();
+  const usuario = document.getElementById("login-usuario").value.trim().toLowerCase();
+  const senha = document.getElementById("login-senha").value;
+  const hashDigitado = await sha256Hex(senha);
+  const encontrado = USUARIOS.find((u) => u.usuario === usuario && u.hash === hashDigitado);
+  if (!encontrado) {
+    document.getElementById("login-erro").hidden = false;
+    return;
+  }
+  localStorage.setItem(SESSAO_KEY, encontrado.usuario);
+  mostrarApp(encontrado.usuario);
+});
+
+document.getElementById("btn-logout").addEventListener("click", () => {
+  localStorage.removeItem(SESSAO_KEY);
+  mostrarLogin();
+});
+
+const sessaoAtual = localStorage.getItem(SESSAO_KEY);
+if (sessaoAtual && USUARIOS.some((u) => u.usuario === sessaoAtual)) {
+  mostrarApp(sessaoAtual);
+} else {
+  mostrarLogin();
+}

@@ -1,4 +1,4 @@
-# CRM Simples
+# m4t CRM
 
 CRM básico para gestão de contatos, negócios (pipeline) e tarefas.
 
@@ -6,6 +6,23 @@ CRM básico para gestão de contatos, negócios (pipeline) e tarefas.
 navegador onde o app é aberto. Não há sincronização entre dispositivos — use
 o botão **Exportar** para gerar um backup em JSON e **Importar** para
 restaurá-lo (em outro navegador/computador, por exemplo).
+
+## Login
+
+Tela de login com dois usuários fixos, definidos em `app.js`:
+
+| Usuário   | Senha    |
+|-----------|----------|
+| `matheus` | `m4t123` |
+| `paulo`   | `123456` |
+
+A sessão fica salva no `localStorage` até clicar em **Sair**. As senhas são
+comparadas por hash (SHA-256), então não aparecem em texto puro no código —
+mas isso **não é segurança de verdade**: é só uma trava de acesso para não
+deixar o app aberto pra qualquer um. Como é 100% front-end (sem servidor),
+qualquer pessoa com acesso ao `app.js` pode ver os hashes ou pular a
+checagem de login direto pelo devtools do navegador. Não use essas
+credenciais nem essa tela para proteger dados sensíveis de verdade.
 
 ## Como rodar
 
@@ -26,11 +43,15 @@ Não há build nem dependências. Duas opções:
   tarefas pendentes, tarefas atrasadas e os negócios mais recentes.
 - **Contatos** — cadastro (nome, empresa, e-mail, telefone, notas) com busca
   por nome/empresa.
-- **Negócios** — quadro Kanban por estágio (Lead → Proposta → Negociação →
-  Ganho/Perdido), com valor e contato vinculado. O estágio é trocado
-  arrastando o card para outra coluna.
+- **Negócios** — quadro Kanban por estágio, com valor e contato vinculado. O
+  estágio é trocado arrastando o card para outra coluna (o quadro rola
+  horizontalmente sozinho se você arrastar perto da borda).
 - **Tarefas** — lista com data de vencimento, vínculo opcional a um contato
   e/ou negócio, marcação de concluída e destaque para tarefas atrasadas.
+- **Funil** — cadastro dos estágios usados no Kanban de Negócios: adicionar,
+  renomear, reordenar (setas ▲▼) e excluir (só é permitido excluir um
+  estágio sem negócios nele). Por padrão vem com Lead → Proposta →
+  Negociação → Ganho → Perdido, mas isso é só o ponto de partida.
 
 ## Importação em massa (CSV)
 
@@ -43,28 +64,35 @@ CSV** (gera o arquivo com o cabeçalho e uma linha de exemplo) e um botão
   **atualizado** em vez de duplicado; sem e-mail, sempre entra como novo.
 - **Negócios**: colunas `titulo, valor, estagio, contato_nome,
   contato_email`. Só `titulo` é obrigatório. `estagio` aceita o nome
-  (Lead/Proposta/Negociação/Ganho/Perdido, sem diferenciar acento/maiúsculas)
-  ou o id interno (`lead`, `proposta`, ...); valor não reconhecido cai em
-  Lead. `valor` aceita tanto `1500.00` quanto o formato BR `1.500,00`. O
-  contato é resolvido primeiro por `contato_email`, depois por
-  `contato_nome` (comparação exata); se nenhum bater, o negócio é importado
-  sem contato vinculado.
+  cadastrado na aba **Funil** (sem diferenciar acento/maiúsculas) ou o id
+  interno; se não reconhecer, cai no primeiro estágio da lista. `valor`
+  aceita tanto `1500.00` quanto o formato BR `1.500,00`. O contato é
+  resolvido primeiro por `contato_email`, depois por `contato_nome`
+  (comparação exata); se nenhum bater, o negócio é importado sem contato
+  vinculado.
 - O parser aceita `,` ou `;` como separador (detectado automaticamente pelo
   cabeçalho) e campos entre aspas, então funciona tanto com CSV exportado
   por planilhas em PT-BR quanto no formato "internacional" do modelo.
 
 ## Estrutura
 
-- `index.html` — estrutura das telas e do modal de formulário.
+- `index.html` — tela de login, estrutura das telas do app e do modal de
+  formulário.
 - `style.css` — estilos.
-- `app.js` — estado da aplicação (`localStorage`), renderização, regras de
-  cada tela (CRUD de contatos/negócios/tarefas, filtros, drag-and-drop do
-  Kanban) e importação/exportação (backup em JSON, CSV de contatos/negócios).
+- `app.js` — login, estado da aplicação (`localStorage`), renderização,
+  regras de cada tela (CRUD de contatos/negócios/tarefas/estágios, filtros,
+  drag-and-drop do Kanban) e importação/exportação (backup em JSON, CSV de
+  contatos/negócios).
 
 ## Limitações conhecidas
 
-- Dados por navegador/dispositivo (sem login, sem servidor).
+- Dados por navegador/dispositivo (o login é só uma trava de acesso local —
+  ver seção **Login** — não uma conta de verdade com dados na nuvem).
 - Importação de negócios sempre cria registros novos (não tenta atualizar um
   negócio existente); só a importação de contatos faz dedupe, por e-mail.
 - Drag-and-drop usa a API nativa do HTML5, que tem suporte limitado em
   navegadores mobile — nesses casos, edite o negócio para trocar o estágio.
+- O Dashboard considera negócio "em aberto" quando o estágio não é o padrão
+  `ganho` nem `perdido`. Se você excluir/renomear esses dois estágios padrão
+  na aba Funil e criar outros com o mesmo sentido, o Dashboard não vai saber
+  que eles são "estágios finais" — só afeta o card de resumo, não os dados.
